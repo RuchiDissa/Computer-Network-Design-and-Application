@@ -1,0 +1,37 @@
+void handle_client(int client_socket) {
+    char buffer[BUFFER_SIZE]; // Buffer to store data received from the client
+    char username[MAX_USERNAME_LENGTH], password[MAX_PASSWORD_LENGTH]; // Variables to store the username and password
+
+    // Send welcome message to client
+    sprintf(buffer, "Welcome to Bob's file server running at %s. Please provide your credentials.\n", running_directory);
+    send(client_socket, buffer, strlen(buffer), 0);
+
+    // Read and process client commands
+    while (recv(client_socket, buffer, BUFFER_SIZE, 0) > 0) {
+        // Parse client command using space delimiter
+        char *token = strtok(buffer, " "); // Tokenize the received command using space as delimiter
+        if (token != NULL) { // Check if token is not NULL
+            strcpy(username, token); // Copy the first token (username) to the username variable
+            token = strtok(NULL, " "); // Get the next token (password)
+            if (token != NULL) { // Check if token is not NULL
+                strcpy(password, token); // Copy the second token (password) to the password variable
+
+                // Debug print
+                printf("Received username: %s, password: %s\n", username, password);
+
+                // Authenticate user from password file
+                if (authenticate_user(username, password)) {
+                    sprintf(buffer, "200 User %s granted to access.\n", username); // Authentication successful message
+                } else {
+                    sprintf(buffer, "401 Unauthorized.\n"); // Authentication failed message
+                }
+
+                // Send response to client
+                send(client_socket, buffer, strlen(buffer), 0);
+            }
+        }
+    }
+
+    // Close client socket when done
+    close(client_socket);
+}
