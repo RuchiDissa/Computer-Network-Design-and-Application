@@ -1,0 +1,87 @@
+// Function to handle communication with a client
+void handle_client(int client_socket) {
+    char buffer[BUFFER_SIZE];
+    char response[BUFFER_SIZE];
+
+    // Send welcome message to client
+    sprintf(response, "Welcome to Bob's file server\n");
+    send(client_socket, response, strlen(response), 0);
+
+    // Authentication flag
+    int authenticated = 0;
+    char current_user[MAX_USERNAME_LENGTH];
+
+    // Receive and process commands from client
+    while (recv(client_socket, buffer, BUFFER_SIZE, 0) > 0) {
+        // Parse command and arguments
+        char *command = strtok(buffer, " \n"); // Include '\n' as delimiter to remove trailing newline
+        char *username = strtok(NULL, " "); // Get username
+        char *password = strtok(NULL, "");  // Get password
+
+        // Remove leading and trailing whitespaces from username and password
+        if (username) {
+            while (*username && isspace((unsigned char)*username)) username++;
+            char *end = username + strlen(username) - 1;
+            while (end > username && isspace((unsigned char)*end)) end--;
+            end[1] = '\0';
+        }
+        if (password) {
+            while (*password && isspace((unsigned char)*password)) password++;
+            char *end = password + strlen(password) - 1;
+            while (end > password && isspace((unsigned char)*end)) end--;
+            end[1] = '\0';
+        }
+
+        if (strcmp(command, "USER") == 0 && username != NULL && password != NULL) {
+            // Authenticate user
+            authenticated = 0;
+            for (int i = 0; i < num_users; i++) {
+                if (strcmp(users[i].username, username) == 0 && strcmp(users[i].password, password) == 0) {
+                    authenticated = 1;
+                    strcpy(current_user, username);
+                    break;
+                }
+            }
+            // Send response
+            if (authenticated) {
+                sprintf(response, "200 User %s granted to access.\n", username);
+            } else {
+                sprintf(response, "400 User not found. Please try with another user.\n");
+            }
+            send(client_socket, response, strlen(response), 0);
+        } else if (strcmp(command, "LIST") == 0 && authenticated) {
+            // List files in directory
+            DIR *dir;
+            struct dirent *entry;
+            dir = opendir(directory);
+            if (dir == NULL) {
+                sprintf(response, "500 Failed to open directory.\n");
+                send(client_socket, response, strlen(response), 0);
+            } else {
+                sprintf(response, "Listing files in directory:\n");
+                send(client_socket, response, strlen(response), 0);
+                while ((entry = readdir(dir)) != NULL) {
+                    if (entry->d_type == DT_REG) { // Check if it's a regular file
+                        sprintf(response, "%s\n", entry->d_name);
+                        send(client_socket, response, strlen(response), 0);
+                    }
+                }
+                // Send terminator
+                send(client_socket, ".\n", 2, 0);
+                closedir(dir);
+            }
+        } else if (strcmp(command, "QUIT") == 0 && authenticated) {
+            // Close connection
+            sprintf(response, "Goodbye, %s.\n", current_user);
+            send(client_socket, response, strlen(response), 0);
+            break;
+        } else {
+            // Unsupported command or incorrect syntax
+            sprintf(response, "500 Syntax error in parameters or command unrecognized.\n");
+            send(client_socket, response, strlen(response), 0);
+        }
+    }
+
+    // Close client socket
+    close(client_socket);
+}
