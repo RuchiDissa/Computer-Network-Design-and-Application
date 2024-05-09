@@ -1,3 +1,6 @@
+// gcc -o server server.c
+//./server -d /home/student/21815070/network_project -p 8888 -u password_file
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
