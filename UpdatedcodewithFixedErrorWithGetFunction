@@ -1,0 +1,180 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <ctype.h>
+#include <dirent.h>
+#include <sys/stat.h>
+#include <limits.h>
+
+#define BUFFER_SIZE 1024
+#define MAX_USERS 200
+#define MAX_USERNAME_LENGTH 50
+#define MAX_PASSWORD_LENGTH 50
+
+// Define user structure
+typedef struct {
+    char username[MAX_USERNAME_LENGTH];
+    char password[MAX_PASSWORD_LENGTH];
+} User;
+
+// Global variables
+User users[MAX_USERS];
+int num_users = 0;
+
+// Function to load user information from a password file
+void load_password_file(const char *password_file) {
+    FILE *file = fopen(password_file, "r");
+    if (file == NULL) {
+        perror("Error opening password file");
+        exit(EXIT_FAILURE);
+    }
+
+    char line[MAX_USERNAME_LENGTH + MAX_PASSWORD_LENGTH + 2];
+    while (fgets(line, sizeof(line), file) != NULL && num_users < MAX_USERS) {
+        char *username = strtok(line, ":");
+        char *password = strtok(NULL, "\n");
+
+        if (username != NULL && password != NULL) {
+            strncpy(users[num_users].username, username, MAX_USERNAME_LENGTH);
+            strncpy(users[num_users].password, password, MAX_PASSWORD_LENGTH);
+            num_users++;
+        }
+    }
+
+    fclose(file);
+}
+
+// Function to handle communication with a client
+void handle_client(int client_socket, const char *directory) {
+    char buffer[BUFFER_SIZE];
+    char response[BUFFER_SIZE];
+
+    // Send welcome message to client
+    sprintf(response, "Welcome to Bob's file server\n");
+    send(client_socket, response, strlen(response), 0);
+
+    // Authentication variables
+    int authenticated = 0;
+    char current_user[MAX_USERNAME_LENGTH];
+
+    // Receive and process commands from client
+    while (recv(client_socket, buffer, BUFFER_SIZE, 0) > 0) {
+        char *command = strtok(buffer, " \n");
+        char *argument = strtok(NULL, "\n");
+        char *username = NULL;
+        char *password = NULL;
+
+        // If command is USER, extract username and password
+        if (strcmp(command, "USER") == 0 && argument != NULL) {
+            username = strtok(argument, " ");
+            password = strtok(NULL, "\n");
+        }
+
+        // Authenticate user if USER command is received
+        if (strcmp(command, "USER") == 0 && username != NULL && password != NULL) {
+            authenticated = 0;
+            for (int i = 0; i < num_users; i++) {
+                if (strcmp(users[i].username, username) == 0 && strcmp(users[i].password, password) == 0) {
+                    authenticated = 1;
+                    strcpy(current_user, username);
+                    break;
+                }
+            }
+            // Send response to client
+            if (authenticated) {
+                sprintf(response, "200 User %s granted to access.\n", username);
+            } else {
+                sprintf(response, "400 User not found. Please try with another user.\n");
+            }
+            send(client_socket, response, strlen(response), 0);
+        } 
+        // If command is LIST and user is authenticated, list files in directory
+        else if (strcmp(command, "LIST") == 0 && authenticated) {
+            // Code to list files in directory...
+        } 
+        // If command is GET and user is authenticated, get file content
+        else if (strcmp(command, "GET") == 0 && authenticated) {
+            // Code to get file content...
+        } 
+        // If command is QUIT and user is authenticated, close connection
+        else if (strcmp(command, "QUIT") == 0 && authenticated) {
+            // Code to close connection...
+        } 
+        // Handle unsupported command or incorrect syntax
+        else {
+            sprintf(response, "500 Syntax error in parameters or command unrecognized.\n");
+            send(client_socket, response, strlen(response), 0);
+        }
+    }
+
+    // Close client socket
+    close(client_socket);
+}
+
+// Main function
+int main(int argc, char *argv[]) {
+    // Check command-line arguments
+    if (argc != 7 || strcmp(argv[1], "-d") != 0 || strcmp(argv[3], "-p") != 0 || strcmp(argv[5], "-u") != 0) {
+        fprintf(stderr, "Usage: %s -d directory -p port -u password_file\n", argv[0]);
+        exit(EXIT_FAILURE);
+    }
+
+    // Extract directory, port, and password file from command-line arguments
+    char *directory = argv[2];
+    int port = atoi(argv[4]);
+    char *password_file = argv[6];
+
+    // Load user information from password file
+    load_password_file(password_file);
+
+    // Create server socket
+    int server_socket = socket(AF_INET, SOCK_STREAM, 0);
+    if (server_socket < 0) {
+        perror("Error creating server socket");
+        exit(EXIT_FAILURE);
+    }
+
+    // Set up server address structure
+    struct sockaddr_in server_addr;
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_addr.s_addr = INADDR_ANY;
+    server_addr.sin_port = htons(port);
+
+    // Bind server socket to specified port
+    if (bind(server_socket, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
+        perror("Error binding server socket");
+        exit(EXIT_FAILURE);
+    }
+
+    // Listen for incoming connections
+    if (listen(server_socket, 5) < 0) {
+        perror("Error listening for connections");
+        exit(EXIT_FAILURE);
+    }
+
+    // Print message indicating server is listening
+    printf("File server listening on port %d\n", port);
+
+    // Accept incoming connections and handle clients
+    while (1) {
+        struct sockaddr_in client_addr;
+        socklen_t client_addr_len = sizeof(client_addr);
+        int client_socket = accept(server_socket, (struct sockaddr *)&client_addr, &client_addr_len);
+        if (client_socket < 0) {
+            perror("Error accepting client connection");
+            continue;
+        }
+
+        // Handle communication with client
+        handle_client(client_socket, directory);
+    }
+
+    // Close server socket
+    close(server_socket);
+
+    return 0;
+}
