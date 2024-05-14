@@ -50,69 +50,138 @@ void load_password_file(const char *password_file) {
 
 // Function to handle communication with a client
 void handle_client(int client_socket, const char *directory) {
-    char buffer[BUFFER_SIZE];
-    char response[BUFFER_SIZE];
+    char buffer[BUFFER_SIZE]; // Buffer to store received data
+    char response[BUFFER_SIZE]; // Buffer to store response data
 
     // Send welcome message to client
     sprintf(response, "Welcome to Bob's file server\n");
     send(client_socket, response, strlen(response), 0);
 
-    // Authentication variables
-    int authenticated = 0;
-    char current_user[MAX_USERNAME_LENGTH];
+    // Authentication flag
+    int authenticated = 0; // Flag to indicate whether the client is authenticated
+    char current_user[MAX_USERNAME_LENGTH]; // Variable to store the username of the current user
 
     // Receive and process commands from client
-    while (recv(client_socket, buffer, BUFFER_SIZE, 0) > 0) {
-        char *command = strtok(buffer, " \n");
-        char *argument = strtok(NULL, "\n");
+    while (recv(client_socket, buffer, BUFFER_SIZE, 0) > 0) { // Receive data from client
+        printf("Received command: %s\n", buffer); // Debug print
+
+        // Parse command and arguments
+        char *command = strtok(buffer, " \n"); // Extract command
+        char *argument = strtok(NULL, "\n");    // Extract argument (e.g., filename)
         char *username = NULL;
         char *password = NULL;
 
-        // If command is USER, extract username and password
+        // If the command is USER, extract username and password
         if (strcmp(command, "USER") == 0 && argument != NULL) {
-            username = strtok(argument, " ");
-            password = strtok(NULL, "\n");
+            username = strtok(argument, " ");    // Extract username
+            password = strtok(NULL, "\n");       // Extract password
         }
 
-        // Authenticate user if USER command is received
+        // Debug prints
+        printf("Command: %s\n", command);
+        printf("Username: %s\n", username);
+        printf("Password: %s\n", password);
+        printf("Argument: %s\n", argument);
+
+        // Debug print to see the content of the buffer after parsing
+        printf("Buffer after parsing: %s\n", buffer);
+
+        // Check if command is USER and username and password are provided
         if (strcmp(command, "USER") == 0 && username != NULL && password != NULL) {
-            authenticated = 0;
+            // Authenticate user
+            authenticated = 0; // Reset authentication flag
             for (int i = 0; i < num_users; i++) {
                 if (strcmp(users[i].username, username) == 0 && strcmp(users[i].password, password) == 0) {
-                    authenticated = 1;
-                    strcpy(current_user, username);
-                    break;
+                    authenticated = 1; // Set authentication flag
+                    strcpy(current_user, username); // Store current username
+                    break; // Exit loop if user is authenticated
                 }
             }
-            // Send response to client
+            // Send response
             if (authenticated) {
-                sprintf(response, "200 User %s granted to access.\n", username);
+                sprintf(response, "200 User %s granted to access.\n", username); // Send success message
             } else {
-                sprintf(response, "400 User not found. Please try with another user.\n");
+                sprintf(response, "400 User not found. Please try with another user.\n"); // Send error message
             }
-            send(client_socket, response, strlen(response), 0);
-        } 
-        // If command is LIST and user is authenticated, list files in directory
-        else if (strcmp(command, "LIST") == 0 && authenticated) {
-            // Code to list files in directory...
-        } 
-        // If command is GET and user is authenticated, get file content
-        else if (strcmp(command, "GET") == 0 && authenticated) {
-            // Code to get file content...
-        } 
-        // If command is QUIT and user is authenticated, close connection
-        else if (strcmp(command, "QUIT") == 0 && authenticated) {
-            // Code to close connection...
-        } 
-        // Handle unsupported command or incorrect syntax
-        else {
-            sprintf(response, "500 Syntax error in parameters or command unrecognized.\n");
-            send(client_socket, response, strlen(response), 0);
+            send(client_socket, response, strlen(response), 0); // Send response to client
+        } else if (strcmp(command, "LIST") == 0 && authenticated) { // Check if command is LIST and user is authenticated
+            // List files in directory
+            DIR *dir; // Directory pointer
+            struct dirent *entry; // Directory entry structure
+            dir = opendir(directory); // Open directory
+            if (dir == NULL) { // Check if directory opening failed
+                sprintf(response, "500 Failed to open directory.\n"); // Send error message
+                send(client_socket, response, strlen(response), 0); // Send response to client
+            } else {
+                // Start building the response
+                sprintf(response, "Listing files in directory:\n"); // Send header message
+                send(client_socket, response, strlen(response), 0); // Send header message to client
+
+                // Iterate through directory entries
+                while ((entry = readdir(dir)) != NULL) { // Read directory entries
+                    if (entry->d_type == DT_REG) { // Check if it's a regular file
+                        // Exclude sensitive files from the list (e.g., server files, password file)
+                        if (strcmp(entry->d_name, "server") != 0 && strcmp(entry->d_name, "password_file.cfg") != 0 && strcmp(entry->d_name,"newserver2.c")!=0 && strcmp(entry->d_name,"pser>
+                            struct stat file_stat; // File status structure
+                            char filepath[PATH_MAX]; // Buffer to store file path
+                            snprintf(filepath, PATH_MAX, "%s/%s", directory, entry->d_name); // Construct file path
+
+                            // Get file size
+                            if (stat(filepath, &file_stat) == 0) { // Get file status
+                                // Append filename and size to the response
+                                sprintf(response, "%s %ld\n", entry->d_name, file_stat.st_size); // Format filename and size
+                                send(client_socket, response, strlen(response), 0); // Send filename and size to client
+                            }
+                        }
+                    }
+                }
+
+                // Send terminator
+                send(client_socket, ".\n", 2, 0); // Send terminator
+                closedir(dir); // Close directory
+            }
+        } else if (strcmp(command, "GET") == 0 && authenticated) { // Check if command is GET and user is authenticated
+            // Get file content
+            if (argument != NULL) {
+                char *filename = argument; // Extract filename directly from argument
+                printf("Filename: %s\n", filename); // Debug print
+                char filepath[PATH_MAX]; // Buffer to store file path
+                snprintf(filepath, PATH_MAX, "%s/%s", directory, filename); // Construct file path
+                FILE *file = fopen(filepath, "r"); // Open file for reading
+                if (file != NULL) {
+                    // File found, send content to client
+                    sprintf(response, "200 File content for %s:\n", filename); // Send success message
+                    send(client_socket, response, strlen(response), 0); // Send response to client
+                    while (fgets(response, BUFFER_SIZE, file) != NULL) {
+                        send(client_socket, response, strlen(response), 0); // Send file content to client
+                    }
+                    fclose(file); // Close file
+                    // Send termination signal
+                    send(client_socket, ".\r\n.\r\n", 6, 0); // Send termination signal
+                } else {
+                    // File not found
+                    sprintf(response, "404 File %s not found.\n", filename); // Send error message
+                    send(client_socket, response, strlen(response), 0); // Send response to client
+                }
+            } else {
+                // Incorrect syntax
+                sprintf(response, "500 Syntax error in parameters or command unrecognized.\n"); // Send error message
+                send(client_socket, response, strlen(response), 0); // Send response to client
+            }
+        } else if (strcmp(command, "QUIT") == 0 && authenticated) { // Check if command is QUIT and user is authenticated
+            // Close connection
+            sprintf(response, "Goodbye, %s.\n", current_user); // Send goodbye message
+            send(client_socket, response, strlen(response), 0); // Send response to client
+            break; // Exit loop
+        } else { // Handle unsupported command or incorrect syntax
+            // Unsupported command or incorrect syntax
+            sprintf(response, "500 Syntax error in parameters or command unrecognized.\n"); // Send error message
+            send(client_socket, response, strlen(response), 0); // Send response to client
         }
     }
 
     // Close client socket
-    close(client_socket);
+    close(client_socket); // Close client socket
 }
 
 // Main function
